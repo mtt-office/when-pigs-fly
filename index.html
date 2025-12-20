@@ -1,0 +1,1354 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>When Pigs Fly</title>
+
+  <!-- three.js r128 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- GLTFLoader (r128 호환) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+      background: #87CEEB;
+    }
+
+    .background-image {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    }
+
+    #container {
+      width: 100vw;
+      height: calc(100vh - 18vh);
+      min-height: calc(100vh - 180px);
+      cursor: move;
+      touch-action: none;
+    }
+
+    @media (max-width: 768px) {
+      #container {
+        height: calc(100vh - 20vh);
+        min-height: calc(100vh - 120px);
+      }
+    }
+
+    .loading-screen {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgb(255, 255, 255);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+      transition: opacity 0.5s;
+    }
+
+    .loading-screen.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loading-spinner{
+      width: 56px;
+      height: 56px;
+      border: 5px solid rgba(255, 255, 255, 0.35);
+      border-top-color: #0051ff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    .loading-text {
+      margin-top: 20px;
+      color: #0051ff;
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ✅ 상단 바 더 얇게 */
+    .top-bar {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      width: 100%;
+      height: 7px; /* 기존 12px -> 얇게 */
+      z-index: 2000;
+      background: repeating-linear-gradient(
+        90deg,
+        #574429 -2px,
+        #574429 40px,
+        #B8CFFF 39px,
+        #B8CFFF 74px
+      );
+    }
+
+    .top-bar img { display: none; }
+
+    /* ✅ 로고 버튼: 간격 더 줄이고, 비율에 따라 자연스럽게 변하게 */
+    .logo-buttons {
+      position: absolute;
+      top: 2vh;
+      left: 2vw;
+      display: flex;
+      flex-direction: column;
+      gap: clamp(4px, 0.6vh, 10px); /* 기존보다 약간 줄임 */
+      z-index: 500;
+    }
+
+    .logo-button {
+      width: clamp(60px, 8vw, 120px);
+      height: clamp(60px, 8vw, 120px);
+      cursor: pointer;
+      transition: transform 0.3s;
+      background: transparent;
+      overflow: visible;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-button:hover { transform: scale(1.1); }
+
+    .logo-button img {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* ✅ 로고버튼2 텍스트 박스 (위치는 JS로 버튼2 기준 자동 배치) */
+    .info-box {
+      position: fixed; /* absolute -> fixed (뷰포트 기준으로 안정) */
+      left: 2vw;
+      top: 120px; /* JS에서 덮어씀 */
+      background: rgba(255, 255, 255, 0.95);
+      padding: clamp(12px, 1.2vw, 18px);
+      width: min(520px, 88vw);
+      z-index: 1600;
+      opacity: 0;
+      transform: translateY(-12px);
+      pointer-events: none;
+      transition: all 0.25s ease;
+      border: 3px dashed #574429; /* ✅ 항상 갈색 점선 */
+    }
+
+    .info-box.show {
+      opacity: 1;
+      transform: translateY(0);
+      pointer-events: auto;
+    }
+
+    .info-box h3 {
+      margin-bottom: 10px;
+      color: #333;
+      font-size: clamp(14px, 1.2vw, 16px);
+    }
+
+    .info-box p {
+      color: #666;
+      font-size: clamp(12px, 1vw, 14px);
+      line-height: 1.6;
+      white-space: pre-line;
+    }
+
+    .poster-gallery {
+      position: fixed;
+      bottom: 0;
+      left: 0; right: 0;
+      height: 18vh;
+      min-height: 120px;
+      max-height: 180px;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(0, 0, 0, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 1vh 20px;
+      gap: 0.8vw;
+      overflow-x: auto;
+      overflow-y: hidden;
+      z-index: 1100;
+
+      -webkit-overflow-scrolling: touch;
+      scroll-behavior: smooth;
+    }
+
+    .poster-gallery::-webkit-scrollbar { height: 8px; }
+    .poster-gallery::-webkit-scrollbar-track { background: #B8CFFF; }
+    .poster-gallery::-webkit-scrollbar-thumb { background: #574429; border-radius: 10px; }
+    .poster-gallery::-webkit-scrollbar-thumb:hover { background: #3f2f1c; }
+
+    .poster-item {
+      flex-shrink: 0;
+      width: 5vw;
+      min-width: 60px;
+      max-width: 100px;
+      aspect-ratio: 1 / 1.414;
+      background: #f0f0f0;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .poster-item:hover {
+      transform: translateY(-10px);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    .poster-item.active { transform: translateY(-5px); }
+
+    .poster-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .poster-placeholder {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #999;
+      font-size: clamp(9px, 0.8vw, 11px);
+      text-align: center;
+      padding: 5px;
+    }
+
+    .control-panel {
+      position: fixed;
+      top: 4vh;
+      right: 2vw;
+      background: rgba(255, 255, 255, 0.4);
+      backdrop-filter: blur(10px);
+      padding: 0.9vw;
+      min-width: 180px;
+      max-width: 250px;
+      z-index: 500;
+    }
+
+    .control-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 15px;
+    }
+    .control-item:last-child { margin-bottom: 0; }
+
+    .control-label {
+      font-size: clamp(11px, 1vw, 13px);
+      color: #333;
+      min-width: 70px;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      height: 6px;
+      background: #B8CFFF;
+      outline: none;
+      cursor: pointer;
+      -webkit-appearance: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 13px;
+      height: 13px;
+      background: #574429;
+      cursor: pointer;
+    }
+
+    @media (max-width: 768px) {
+      .control-panel { display: none; }
+    }
+
+    .about-overlay {
+      position: fixed;
+      bottom: -100%;
+      left: 0; right: 0;
+      height: 100%;
+      background: rgba(48, 33, 10, 0.95);
+      z-index: 2000; /* ✅ 트로피보다 위 */
+      transition: bottom 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 8vh 5vw 25vh 5vw;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .about-overlay.show { bottom: 0; }
+
+    .about-content {
+      display: flex;
+      gap: 5vw;
+      max-width: 1400px;
+      width: 100%;
+      align-items: flex-start;
+    }
+
+    .about-image {
+      flex-shrink: 0;
+      width: 25vw;
+      min-width: 250px;
+      max-width: 400px;
+      aspect-ratio: 1 / 1.414;
+      background: white;
+      overflow: hidden;
+    }
+
+    .about-image img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .about-text {
+      flex: 1;
+      color: white;
+      min-width: 300px;
+    }
+
+    .about-text h2 {
+      font-size: clamp(20px, 2vw, 28px);
+      margin-bottom: 3vh;
+      border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+      padding-bottom: 2vh;
+    }
+
+    .about-scroll {
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      line-height: 1.8;
+      max-height: 50vh;
+      overflow-y: auto;
+      padding-right: 15px;
+      margin-bottom: 2vh;
+    }
+
+    .about-scroll p {
+      line-height: 1.8;
+      margin-bottom: 15px;
+      font-size: clamp(13px, 1.2vw, 16px);
+    }
+
+    /* ✅ 작가 영역 */
+    .author-wrap { margin: 0 0 2vh 0; }
+    .author-wrap.hidden { display: none; } /* ✅ 초기(포스터 선택 전) 숨김 */
+
+    .author-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      background: transparent;
+      border: none;
+      color: white;
+      cursor: pointer;
+      padding: 0;
+      font-size: clamp(13px, 1.2vw, 16px);
+      font-weight: 700;
+      letter-spacing: 0.2px;
+    }
+
+    .author-toggle:hover { opacity: 0.8; }
+
+    .author-caret {
+      display: inline-block;
+      transform: rotate(0deg);
+      transition: transform 0.25s ease;
+      opacity: 0.9;
+    }
+
+    .author-wrap.open .author-caret { transform: rotate(90deg); }
+
+    .author-bio {
+      margin-top: 10px;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.35s ease;
+      opacity: 0.95;
+    }
+
+    .author-wrap.open .author-bio { max-height: 240px; }
+
+    .author-bio p {
+      margin: 0;
+      font-size: clamp(12px, 1.1vw, 15px);
+      line-height: 1.7;
+      color: rgba(255,255,255,0.92);
+    }
+
+    .about-contact {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      font-size: clamp(13px, 1.2vw, 16px);
+    }
+
+    .about-contact a {
+      color: white;
+      text-decoration: none;
+      transition: opacity 0.3s;
+    }
+
+    .about-contact a:hover { opacity: 0.7; }
+
+    .toggle-button {
+      position: fixed;
+      bottom: calc(20vh + 2vh);
+      right: 3vw;
+      width: clamp(65px, 6vw, 100px);
+      height: clamp(65px, 6vw, 100px);
+      border-radius: 50%;
+      background: #574429;
+      color: white;
+      font-size: clamp(11px, 1vw, 14px);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      z-index: 2200;
+    }
+
+    .toggle-button.back {
+      background: #B8CFFF;
+      color: #333;
+    }
+
+    .toggle-button:hover { transform: scale(1.1); }
+
+    #confetti {
+      position: fixed;
+      left: 0;
+      top: 0;
+      width: 100vw;
+      height: 100vh;
+      pointer-events: none;
+      z-index: 900;
+    }
+
+    /* ✅ 트로피 (모바일에서 더 작게) */
+    .trophy-badge {
+      position: fixed;
+      left: 18px;
+      bottom: calc(18vh + 10px);
+      width: 90px;
+      height: auto;
+      z-index: 1300;
+      pointer-events: auto;
+      cursor: pointer;
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+    }
+
+    .trophy-badge.show {
+      opacity: 1;
+      transform: translateY(0px) scale(1);
+      animation: trophyFloat 2.6s ease-in-out infinite;
+    }
+
+    @keyframes trophyFloat {
+      0%   { transform: translateY(0px)   translateX(0px)   rotate(-1deg) scale(1); }
+      50%  { transform: translateY(-10px) translateX(4px)   rotate(1deg)  scale(1); }
+      100% { transform: translateY(0px)   translateX(0px)   rotate(-1deg) scale(1); }
+    }
+
+    @media (max-width: 768px) {
+      .trophy-badge {
+        bottom: calc(20vh + 8px);
+        width: 62px; /* ✅ 더 작게 */
+      }
+
+      /* ✅ 모바일 ABOUT 레이아웃: 포스터(가운데) -> 텍스트(아래, 왼쪽정렬) */
+      .about-content {
+        flex-direction: column;
+        gap: 20px;
+        align-items: center;
+      }
+
+      .about-image {
+        width: min(78vw, 360px);
+        min-width: 0;
+        max-width: none;
+        margin: 0 auto;
+      }
+
+      .about-text {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .about-scroll { max-height: none; }
+      .about-scroll p { text-align: left; }
+      .about-text h2 { text-align: left; }
+
+      /* ✅ 모바일에서 오버레이 열리면 트로피를 더 뒤로 */
+      body.overlay-open .trophy-badge {
+        z-index: 800;
+        pointer-events: none;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <img src="background.jpg" class="background-image" alt="Background">
+
+  <div class="loading-screen" id="loadingScreen">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">돼지를 마음껏 만져보세요.</div>
+  </div>
+
+  <div class="top-bar"></div>
+
+  <div class="logo-buttons">
+    <div class="logo-button" id="button1">
+      <img src="button1.svg" alt="Logo 1">
+    </div>
+    <div class="logo-button" id="button2">
+      <img src="button2.svg" alt="Logo 2">
+    </div>
+  </div>
+
+  <!-- ✅ 로고버튼2 텍스트 박스 내용 변경 -->
+  <div class="info-box" id="infoBox">
+    <h3>MTT OFFICE</h3>
+    <p>믓 스튜디오는 ‘멋’을 사랑하는 그래픽 디자이너 구나영과 최수빈이 결성한 2인 디자인 스튜디오입니다. 인쇄물, 웹, 편집 등 다양한 매체를 다루며, 믓오피스만의 ‘멋’을 정의하고 구현하는 것을 목표로 나아갑니다.</p>
+  </div>
+
+  <div id="container"></div>
+
+  <div class="control-panel">
+    <div class="control-item">
+      <span class="control-label">Speed</span>
+      <input type="range" id="rotationSpeed" min="0" max="2" step="0.1" value="0.5">
+    </div>
+    <div class="control-item">
+      <span class="control-label">Zoom</span>
+      <input type="range" id="scaleSlider" min="0.5" max="3" step="0.1" value="1">
+    </div>
+  </div>
+
+  <div class="toggle-button" id="toggleButton">ABOUT</div>
+
+  <div class="about-overlay" id="aboutOverlay">
+    <div class="about-content">
+      <div class="about-image" id="aboutImage">
+        <!-- ✅ 기본: 아무것도 안 눌렀을 때 보여줄 포스터 -->
+        <img src="pigposter.png" alt="Selected Poster">
+      </div>
+
+      <div class="about-text">
+        <h2>{When Pigs Fly}</h2>
+
+        <!-- ✅ 기본 프로젝트 소개 -->
+        <div class="about-scroll">
+          <p>디자인은 언제나 규칙과 목적이 있어야 한다고 믿으시나요?
+익숙한 틀과 평범한 결과물은 더 이상 우리에게 영감을 주지 못합니다. 우리는 현재 낯설고도 생생한 자극이 필요한 시점에 있습니다.
+{When Pigs Fly}는 ‘터무니없음’ 그 자체를 시각적으로 수집하는 프로젝트입니다.
+디자이너들이 스스로의 사고 구조에서 과감히 벗어나 불가능을 즐기고, 날것 그대로의 터무니없는 디자인을 마음껏 만들 수 있는 자리가 되었으면 좋겠습니다.</p>
+        </div>
+
+        <!-- ✅ 작가 이름/설명 토글 (초기엔 숨김) -->
+        <div class="author-wrap hidden" id="authorWrap">
+          <button class="author-toggle" id="authorToggle" type="button">
+            <span class="author-caret">▸</span>
+            <span id="authorName">작가명</span>
+          </button>
+          <div class="author-bio" id="authorBio">
+            <p id="authorBioText">작가 설명</p>
+          </div>
+        </div>
+
+        <div class="about-contact">
+          <a href="https://www.instagram.com/mtt.office/" target="_blank">@mtt.office</a>
+          <a href="mailto:mtt.5ffice@gmail.com">mtt.5ffice@gmail.com</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="poster-gallery" id="posterGallery"></div>
+
+  <canvas id="confetti"></canvas>
+
+  <img id="trophyBadge" class="trophy-badge" src="" alt="trophy">
+
+  <script>
+    // ✅ posterData: 사용자가 준 형태 그대로 반영
+    const posterData = {
+      1: {
+        title: "생🦀망🦀",
+        text: "‘생게망게하다’는 갑작스럽고 터무니없는 모양을 뜻합니다. 저는 이 표현 속 ‘게’를 실제 게(🦀)로 옮겨, 언어의 우연성과 이미지의 직관을 겹쳐 보았습니다. 무채색으로 정돈된 화면은 겉보기에 주제와 맞지 않아 보이지만, 바로 그 점에서 이번 전시의 주제인 ‘터무니없는 포스터’를 오히려 역설적으로 드러냅니다. 중앙의 작은 균열은 질서 속에서 불쑥 튀어나오는 엉뚱함을 암시합니다.",
+        instagram: "@stunana_",
+        email: "stunanadesigner@gmail.com",
+        artist: "NANA",
+        artistBio: "무채색을 사랑하는 사람. 단순함 속에서 본질을 찾아, 오직 무채색만으로 타이포와 작업물을 완성합니다."
+      },
+      2: {
+        title: "탈피",
+        text: "탈피에 대한 시각화를 진행했습니다. 저에게 개인적으로 24년에서 25년 사이의 기간이 큰 변화가 있던 때인데요 이 변화해서 도약하는 시점을 한계를 뚫고 나아가는 그래픽으로 표현했습니다. 중첩해 레이어를 쌓는 표현방식과 속도감을 드러내는 그래픽 방식을 사용했습니다.",
+        instagram: "@knodmik",
+        email: "knodmik@gmail.com",
+        artist: "노드믹",
+        artistBio: "음악과 문화를 사랑하고 은유적 사고로 디자인을 접근하려 합니다. 현재는 밴드 UNXL과 협업하며 작업을 진행하고 있습니다."
+      },
+      3: {
+        title: "터무니가없다",
+        text: "이 포스터는 터무니가 없습니다.",
+        instagram: "@dought.go",
+        email: "dought.go@gmail.com",
+        artist: "고동욱",
+        artistBio: "타이포그래피를 비롯한 예술적인 모든 것에 애정을 가지고 디자인을 공부합니다. 저마다 새로운 의미를 만들어 낼 수 있는 작업을 목표로 나아갑니다."
+      },
+      4: {
+        title: "기루의 36개월 물어버리기 기록",
+        text: "저희 집 고양이 기루는 태어난 지 3개월부터 저를 물기 시작했습니다. 그 버릇을 36개월이 지난 지금까지도 고치치 못하여 저는 오늘도 기루에게 물렸습니다. 올해를 기준으로 36개월이 된 기루. 이유 없이 물리는 건 괜찮으니, 물리더라도 항상 건강한 모습으로 물리고 싶습니다.",
+        instagram: "@___twig__",
+        email: "clo1025@naver.com",
+        artist: "챌",
+        artistBio: "고양이를 사랑하고 키우고 있는 집사 디자이너 성채린 입니다."
+      },
+      5: {
+        title: "너도 치쿠와 됐어?",
+        text: "처음 보면 이해를 못하고, 이해하면 어이없어서 피식하게 되는 포스터 입니다. 기록적인 폭염이었던 이번 여름, 야외에서 보낸 시간이 많아 제 살은 새까맣게 타버렸습니다...",
+        instagram: "@keemeenzee",
+        email: "keemeenzee@gmail.com",
+        artist: "김민지",
+        artistBio: "커뮤니케이션디자인을 전공하며 관찰을 바탕으로 그래픽, 사진, 타이포그래피 작업을 합니다."
+      },
+      6: {
+        title: "계란바위보 Rock Paper Eggs",
+        text: "Gaver, B., Boucher, A.의 논문에서 Rock–Paper–X 구조의 확장을 참고해 Eggs를 사용한 변형 규칙 사례를 수집했다. 사실 거짓말이다.",
+        instagram: "@surrealhighway",
+        email: "surrealhighway@gmail.com",
+        artist: "김성혁",
+        artistBio: "Surreal Highway를 운영하며 이미지를 뒤섞고 조합해 새로운 감각을 제안합니다."
+      },
+      7: {
+        title: "회덮밥 물회",
+        text: "릴스, 사진, 스크린샷 같은 단편적인 순간들을 엮은 콜라주 포스터입니다.",
+        instagram: "@gingugenie",
+        email: "gingugenie@gmail.com",
+        artist: "깅유지니",
+        artistBio: "사람들의 비주얼 소원을 들어주는 디자이너가 되고 싶습니다."
+      },
+      8: {
+        title: "터무니 스티커",
+        text: "찢어지고 삐뚤빼뚤한 요소 위에 스티커를 붙이며 결함을 아름다움으로 만듭니다.",
+        instagram: "@dui_cry4",
+        email: "leest8577@naver.com",
+        artist: "이수정",
+        artistBio: "새로움과 익숙함 사이에서 실험적인 디자인을 탐구합니다."
+      },
+      9: {
+        title: "Soo Room",
+        text: "매일 생활하고 작업하는 방을 구조도로 표현했습니다.",
+        instagram: "@sootechbox",
+        email: "sootechbox@gmail.com",
+        artist: "장수안",
+        artistBio: "언어와 형식이 긴밀하게 연결된 디자인을 추구합니다."
+      },
+      10: {
+        title: "광고",
+        text: "연락주세요.",
+        instagram: "@choizaeyoung",
+        email: "choizaeyoung.info@gmail.com",
+        artist: "최재영",
+        artistBio: "CGI와 그래픽 디자인을 합니다."
+      },
+      11: {
+        title: "읽으면 행운과 보상이 따라오는",
+        text: "행운과 보상을 크게 배치했지만 읽으면 허탈한 감정이 남도록 작업했습니다.",
+        instagram: "@eajxzy1_arx",
+        email: "kwakdukyoung@gmail.com",
+        artist: "이지원",
+        artistBio: "상명대학교 커뮤니케이션디자인전공 재학 중입니다."
+      },
+      12: {
+        title: "잠",
+        text: "이유가 없어도 되는 디자인을 목표로 드로잉에서 시작한 작업입니다.",
+        instagram: "@seyeongjeonn",
+        email: "syjeonn24@gmail.com",
+        artist: "전세영",
+        artistBio: "그래픽과 브랜딩 작업을 좋아합니다."
+      },
+      13: {
+        title: "FACE",
+        text: "본질은 변하지 않는다는 메시지를 반복되는 눈 이미지로 표현했습니다.",
+        instagram: "@blinkaxis",
+        email: "wohn4288@gmail.com",
+        artist: "Blinkaxis",
+        artistBio: "섬광처럼 강렬한 순간과 지속적인 영감을 탐구합니다."
+      },
+      14: {
+        title: "카우룽카우룽",
+        text: "가을은 가을인가 보네요…",
+        instagram: "@mtee.kr",
+        email: "a52248814@gmail.com",
+        artist: "Mitee",
+        artistBio: "포스터를 좋아하고 깎습니다."
+      },
+      15: {
+        title: "This totem brings me…",
+        text: "이 토템은 행운이 아닌 불운을 끌어들이는 매개체입니다.",
+        instagram: "@hyodoreu_u",
+        email: "hyodoreu0625@gmail.com",
+        artist: "김효원",
+        artistBio: "그래픽·편집물·웹을 만듭니다."
+      },
+      16: {
+        title: "BURNED FOR REAL",
+        text: "Burned can be despair, burned can be delight.",
+        instagram: "@fillainn",
+        email: "Filaaghn@gmail.com",
+        artist: "Fila",
+        artistBio: "Everyday oddities into playful experiments."
+      },
+      17: {
+        title: "흠 없는 환상",
+        text: "완벽함이 오히려 비현실적이라는 질문을 던집니다.",
+        instagram: "@typeetle",
+        email: "hwl1130@naver.com",
+        artist: "typeetle",
+        artistBio: "레터링과 포스터에 관심이 많습니다."
+      },
+      18: {
+        title: "POOP!",
+        text: "가장 하찮고 그래서 더 사랑스러운 똥들의 세계.",
+        instagram: "@zzeluvdesign",
+        email: "zzeluv.design@gmail.com",
+        artist: "김지애",
+        artistBio: "일상의 재밌는 순간을 기록합니다."
+      }
+    };
+
+    // ✅ 작가 토글 UI
+    const authorWrap = document.getElementById('authorWrap');
+    const authorToggle = document.getElementById('authorToggle');
+    const authorNameEl = document.getElementById('authorName');
+    const authorBioTextEl = document.getElementById('authorBioText');
+
+    // ✅ 초기: 포스터 누르기 전엔 작가 섹션 숨김
+    authorWrap.classList.add('hidden');
+    authorWrap.classList.remove('open');
+
+    if (authorToggle) {
+      authorToggle.addEventListener('click', () => {
+        authorWrap.classList.toggle('open');
+      });
+    }
+
+    function updateAboutText(posterIndex) {
+      const data = posterData[posterIndex];
+      if (!data) return;
+
+      document.querySelector('.about-text h2').textContent = data.title;
+      document.querySelector('.about-scroll p').textContent = data.text;
+
+      // ✅ 포스터 선택 시에만 작가 섹션 표시
+      authorNameEl.textContent = data.artist || '작가';
+      authorBioTextEl.textContent = data.artistBio || '';
+      authorWrap.classList.remove('hidden');
+      authorWrap.classList.remove('open');
+
+      const ig = document.querySelector('.about-contact a:first-child');
+      ig.textContent = data.instagram;
+      ig.href = `https://instagram.com/${data.instagram.replace('@', '')}`;
+
+      const mail = document.querySelector('.about-contact a:last-child');
+      mail.textContent = data.email;
+      mail.href = `mailto:${data.email}`;
+    }
+
+    // ===============================
+    // ✅ info-box 위치를 로고버튼2 기준으로 "항상 적당한 간격" 유지
+    // ===============================
+    const infoBox = document.getElementById('infoBox');
+    const button2 = document.getElementById('button2');
+
+    function positionInfoBox() {
+      if (!infoBox || !button2) return;
+      const r = button2.getBoundingClientRect();
+
+      // 버튼2 아래로 "항상" 일정 비율 간격 (너무 벌어지거나 겹치지 않도록 clamp)
+      const gap = Math.max(8, Math.min(18, window.innerHeight * 0.015)); // 8~18px
+      const top = r.bottom + gap;
+      const left = r.left; // 버튼과 자연스럽게 정렬
+
+      infoBox.style.top = `${top}px`;
+      infoBox.style.left = `${left}px`;
+    }
+
+    window.addEventListener('resize', positionInfoBox);
+    window.addEventListener('load', positionInfoBox);
+
+    // ===============================
+    // ✅ 여기서부터 기존 코드 (Three/Confetti 등)
+    // ===============================
+    function ensureUVsForModel(root) {
+      root.traverse((child) => {
+        if (!child.isMesh) return;
+        const geo = child.geometry;
+        if (!geo || geo.attributes.uv) return;
+
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        const size = new THREE.Vector3();
+        bb.getSize(size);
+
+        const pos = geo.attributes.position;
+        const uv = new Float32Array(pos.count * 2);
+
+        const denomX = size.x === 0 ? 1 : size.x;
+        const denomY = size.y === 0 ? 1 : size.y;
+
+        for (let i = 0; i < pos.count; i++) {
+          const x = pos.getX(i);
+          const y = pos.getY(i);
+          uv[i * 2 + 0] = (x - bb.min.x) / denomX;
+          uv[i * 2 + 1] = (y - bb.min.y) / denomY;
+        }
+
+        geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        geo.attributes.uv.needsUpdate = true;
+      });
+    }
+
+    // ===============================
+    // ✅ Confetti
+    // ===============================
+    const confettiCanvas = document.getElementById('confetti');
+    const ctx = confettiCanvas.getContext('2d');
+
+    function resizeConfetti() {
+      const dpr = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1));
+      confettiCanvas.width = Math.floor(window.innerWidth * dpr);
+      confettiCanvas.height = Math.floor(window.innerHeight * dpr);
+      confettiCanvas.style.width = '100vw';
+      confettiCanvas.style.height = '100vh';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    resizeConfetti();
+    window.addEventListener('resize', resizeConfetti);
+
+    function rand(min, max) { return Math.random() * (max - min) + min; }
+
+    let particles = [];
+    let rafId = null;
+
+    function getTopBarBottomY() {
+      const bar = document.querySelector('.top-bar');
+      if (!bar) return 0;
+      const rect = bar.getBoundingClientRect();
+      return rect.bottom + rand(2, 10);
+    }
+
+    function getConfettiStyle(colorKey) {
+      if (colorKey === 'gold')   return { colors: ['#B67A12', '#FFF0A6', '#FFD44A'], highlightStrength: 1.0 };
+      if (colorKey === 'silver') return { colors: ['#6E7680', '#F3F7FF', '#C8D0DB'], highlightStrength: 0.85 };
+      if (colorKey === 'bronze') return { colors: ['#7A3F1A', '#FFD6A6', '#E08A3D'], highlightStrength: 0.80 };
+      return { colors: ['#888888', '#FFFFFF', '#CCCCCC'], highlightStrength: 0.8 };
+    }
+
+    const CONFETTI_SPRITES = {};
+    const SPRITE_LEVELS = 7;
+
+    function makeConfettiSprite(colors, highlightStrength, shine01) {
+      const w = 96, h = 32;
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const g = c.getContext('2d');
+
+      const grad = g.createLinearGradient(0, 0, w, 0);
+      grad.addColorStop(0.00, colors[0]);
+      grad.addColorStop(0.50, colors[1]);
+      grad.addColorStop(1.00, colors[2]);
+
+      g.fillStyle = grad;
+      g.fillRect(0, 0, w, h);
+
+      const a = (0.10 + 0.65 * shine01) * highlightStrength;
+
+      g.globalAlpha = a;
+      g.fillStyle = 'rgba(255,255,255,1)';
+      g.fillRect(w * 0.20, 0, 2, h);
+      g.fillRect(w * 0.52, 0, 1, h);
+      g.fillRect(w * 0.78, 0, 2, h);
+
+      g.globalAlpha = a * 0.45;
+      g.fillRect(w * 0.35, h * 0.25, 1, 1);
+      g.fillRect(w * 0.62, h * 0.55, 1, 1);
+
+      g.globalAlpha = 1;
+      return c;
+    }
+
+    function ensureConfettiSprites(colorKey) {
+      if (CONFETTI_SPRITES[colorKey]) return;
+      const style = getConfettiStyle(colorKey);
+      CONFETTI_SPRITES[colorKey] = [];
+      for (let i = 0; i < SPRITE_LEVELS; i++) {
+        const shine01 = i / (SPRITE_LEVELS - 1);
+        CONFETTI_SPRITES[colorKey].push(
+          makeConfettiSprite(style.colors, style.highlightStrength, shine01)
+        );
+      }
+    }
+
+    function spawnConfettiRain(colorKey) {
+      const w = window.innerWidth;
+      const originY = getTopBarBottomY();
+      ensureConfettiSprites(colorKey);
+
+      const count = 36;
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          key: colorKey,
+          x: rand(-40, w + 40),
+          y: originY + rand(-30, 10),
+          vy: rand(1.0, 6.5),
+          swayAmp: rand(0.6, 2.0),
+          swaySpeed: rand(0.02, 0.07),
+          swayPhase: rand(0, Math.PI * 2),
+          rot: rand(0, Math.PI * 2),
+          vr: rand(-0.18, 0.18),
+          size: rand(10, 20),
+          life: rand(90, 140),
+          flip: rand(0, Math.PI * 2),
+          flipSpeed: rand(0.10, 0.22)
+        });
+      }
+    }
+
+    function startRenderLoopIfNeeded() {
+      if (rafId) return;
+
+      const render = () => {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+
+        ctx.clearRect(0, 0, w, h);
+
+        particles = particles.filter(p => p.life > 0 && p.y < h + 140);
+
+        for (const p of particles) {
+          p.y += p.vy;
+          p.swayPhase += p.swaySpeed;
+          p.x += Math.sin(p.swayPhase) * p.swayAmp;
+          p.rot += p.vr;
+          p.flip += p.flipSpeed;
+          p.life--;
+
+          const alpha = Math.min(1, p.life / 30);
+          const shine = Math.abs(Math.sin(p.flip));
+          const idx = Math.min(SPRITE_LEVELS - 1, Math.floor(shine * (SPRITE_LEVELS - 1)));
+          const sprite = CONFETTI_SPRITES[p.key][idx];
+
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.rot);
+          ctx.globalAlpha = alpha;
+
+          const ww = p.size * 1.24;
+          const hh = p.size * 0.36;
+
+          ctx.drawImage(sprite, -ww * 0.62, -hh * 0.50, ww * 1.24, hh);
+          ctx.restore();
+        }
+
+        if (particles.length === 0) {
+          ctx.clearRect(0, 0, w, h);
+          rafId = null;
+          return;
+        }
+
+        rafId = requestAnimationFrame(render);
+      };
+
+      rafId = requestAnimationFrame(render);
+    }
+
+    function burstConfetti(colorKey) {
+      spawnConfettiRain(colorKey);
+      spawnConfettiRain(colorKey);
+      startRenderLoopIfNeeded();
+    }
+
+    // ===============================
+    // ✅ Trophy + click confetti
+    // ===============================
+    const trophyEl = document.getElementById('trophyBadge');
+    let currentTrophyType = null;
+
+    function showTrophy(type) {
+      if (!trophyEl) return;
+
+      currentTrophyType = type || null;
+
+      if (!type) {
+        trophyEl.classList.remove('show');
+        trophyEl.src = '';
+        return;
+      }
+
+      const src =
+        type === 'gold'   ? 't1.png' :
+        type === 'silver' ? 't2.png' :
+                            't3.png';
+
+      trophyEl.src = src;
+
+      trophyEl.classList.remove('show');
+      void trophyEl.offsetWidth;
+      trophyEl.classList.add('show');
+    }
+
+    if (trophyEl) {
+      trophyEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!currentTrophyType) return;
+        burstConfetti(currentTrophyType);
+      });
+    }
+
+    // -----------------------------
+    // Three.js
+    // -----------------------------
+    const scene = new THREE.Scene();
+    scene.background = null;
+
+    function getContainerHeight() {
+      if (window.innerWidth <= 768) return window.innerHeight * 0.8;
+      return window.innerHeight * 0.82;
+    }
+
+    const containerHeight = getContainerHeight();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / containerHeight, 0.1, 1000);
+    camera.position.z = 5;
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(window.innerWidth, containerHeight);
+    renderer.setClearColor(0x000000, 0);
+    document.getElementById('container').appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambientLight);
+
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    directionalLight.position.set(5, 5, 5);
+    scene.add(directionalLight);
+
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+    directionalLight2.position.set(-5, -3, 3);
+    scene.add(directionalLight2);
+
+    let model = null;
+    let autoRotationSpeed = 0.5;
+    let modelScale = 1;
+    let isDragging = false;
+    let previousMouse = { x: 0, y: 0 };
+    let isTransitioning = false;
+
+    const container = document.getElementById('container');
+
+    const rotationEl = document.getElementById('rotationSpeed');
+    if (rotationEl) rotationEl.addEventListener('input', (e) => autoRotationSpeed = parseFloat(e.target.value));
+
+    const scaleEl = document.getElementById('scaleSlider');
+    if (scaleEl) {
+      scaleEl.addEventListener('input', (e) => {
+        const scale = parseFloat(e.target.value);
+        if (model && !isTransitioning) model.scale.setScalar(modelScale * scale);
+      });
+    }
+
+    container.addEventListener('mousedown', (e) => {
+      isDragging = true;
+      previousMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    container.addEventListener('mousemove', (e) => {
+      if (!isDragging || !model) return;
+      const dx = e.clientX - previousMouse.x;
+      const dy = e.clientY - previousMouse.y;
+      model.rotation.y += dx * 0.01;
+      model.rotation.x += dy * 0.01;
+      previousMouse = { x: e.clientX, y: e.clientY };
+    });
+
+    container.addEventListener('mouseup', () => isDragging = false);
+    container.addEventListener('mouseleave', () => isDragging = false);
+
+    container.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      camera.position.z += e.deltaY * 0.01;
+      camera.position.z = Math.max(2, Math.min(20, camera.position.z));
+    }, { passive: false });
+
+    let touchStartDistance = 0;
+    let initialZoom = 5;
+
+    container.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        isDragging = true;
+        previousMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 2) {
+        isDragging = false;
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        touchStartDistance = Math.sqrt(dx * dx + dy * dy);
+        initialZoom = camera.position.z;
+      }
+    }, { passive: true });
+
+    container.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      if (e.touches.length === 1 && isDragging && model) {
+        const dx = e.touches[0].clientX - previousMouse.x;
+        const dy = e.touches[0].clientY - previousMouse.y;
+        model.rotation.y += dx * 0.01;
+        model.rotation.x += dy * 0.01;
+        previousMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      } else if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const scale = touchStartDistance / distance;
+        camera.position.z = initialZoom * scale;
+        camera.position.z = Math.max(2, Math.min(20, camera.position.z));
+      }
+    }, { passive: false });
+
+    container.addEventListener('touchend', () => isDragging = false);
+
+    function transitionTexture(posterIndex) {
+      if (isTransitioning || !model) return;
+      isTransitioning = true;
+
+      const targetScale = modelScale;
+      const startRotation = model.rotation.y;
+      const duration = 900;
+      const startTime = Date.now();
+
+      function animateOut() {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / (duration / 2), 1);
+        const eased = Math.sin(progress * Math.PI / 2);
+
+        model.scale.setScalar(targetScale * (1 - eased * 0.95));
+        model.rotation.y = startRotation + eased * Math.PI * 2;
+
+        if (progress < 1) requestAnimationFrame(animateOut);
+        else loadTexture(posterIndex, targetScale);
+      }
+
+      animateOut();
+    }
+
+    function loadTexture(posterIndex, targetScale) {
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load(`poster${posterIndex}.jpg`, (texture) => {
+        texture.flipY = false;
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+
+        model.traverse((child) => {
+          if (child.isMesh) {
+            child.material = new THREE.MeshStandardMaterial({
+              map: texture,
+              metalness: 0.1,
+              roughness: 0.8,
+              side: THREE.DoubleSide
+            });
+            child.material.needsUpdate = true;
+          }
+        });
+
+        const startRotation = model.rotation.y;
+        const startTime = Date.now();
+        const duration = 900;
+
+        function animateIn() {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(elapsed / (duration / 2), 1);
+          const eased = 1 - Math.cos(progress * Math.PI / 2);
+
+          model.scale.setScalar(targetScale * (0.05 + eased * 0.95));
+          model.rotation.y = startRotation + eased * Math.PI * 2;
+
+          if (progress < 1) requestAnimationFrame(animateIn);
+          else {
+            model.scale.setScalar(targetScale);
+            isTransitioning = false;
+          }
+        }
+
+        animateIn();
+      });
+    }
+
+    const gltfLoader = new THREE.GLTFLoader();
+    gltfLoader.load(
+      'pig.glb',
+      (gltf) => {
+        model = gltf.scene;
+        ensureUVsForModel(model);
+
+        model.traverse((child) => {
+          if (child.isMesh && child.material) {
+            child.material.side = THREE.DoubleSide;
+            child.material.needsUpdate = true;
+          }
+        });
+
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const size = box.getSize(new THREE.Vector3());
+
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 5 / maxDim;
+
+        model.scale.setScalar(scale);
+        modelScale = scale;
+        model.position.set(-center.x * scale, -center.y * scale, -center.z * scale);
+
+        scene.add(model);
+
+        document.getElementById('loadingScreen').classList.add('hidden');
+      },
+      undefined,
+      (error) => {
+        console.error('GLB 로드 실패:', error);
+        document.getElementById('loadingScreen').classList.add('hidden');
+      }
+    );
+
+    const gallery = document.getElementById('posterGallery');
+    let currentPosterSelection = 1;
+
+    for (let i = 1; i <= 18; i++) {
+      const posterItem = document.createElement('div');
+      posterItem.className = 'poster-item';
+      posterItem.dataset.poster = i;
+
+      const img = document.createElement('img');
+      img.src = `poster${i}.jpg`;
+      img.onerror = () => { posterItem.innerHTML = '<div class="poster-placeholder">Poster ' + i + '</div>'; };
+      posterItem.appendChild(img);
+
+      posterItem.addEventListener('click', () => {
+        document.querySelectorAll('.poster-item').forEach(item => item.classList.remove('active'));
+        posterItem.classList.add('active');
+
+        currentPosterSelection = i;
+        transitionTexture(i);
+
+        if (i === 5) { burstConfetti('gold');   showTrophy('gold'); }
+        else if (i === 7) { burstConfetti('silver'); showTrophy('silver'); }
+        else if (i === 6) { burstConfetti('bronze'); showTrophy('bronze'); }
+        else { showTrophy(null); }
+
+        document.querySelector('#aboutImage img').src = `poster${i}.jpg`;
+        updateAboutText(i);
+      });
+
+      gallery.appendChild(posterItem);
+    }
+
+    document.getElementById('button1').addEventListener('click', () => location.reload());
+
+    // ✅ 모바일에서 다시 눌러도 닫히도록: 기존 toggle 그대로 두되, 위치 재계산 추가
+    document.getElementById('button2').addEventListener('click', () => {
+      positionInfoBox();
+      document.getElementById('infoBox').classList.toggle('show');
+    });
+
+    document.getElementById('toggleButton').addEventListener('click', () => {
+      const overlay = document.getElementById('aboutOverlay');
+      const button = document.getElementById('toggleButton');
+
+      if (overlay.classList.contains('show')) {
+        overlay.classList.remove('show');
+        button.classList.remove('back');
+        button.textContent = 'ABOUT';
+        document.body.classList.remove('overlay-open');
+      } else {
+        overlay.classList.add('show');
+        button.classList.add('back');
+        button.textContent = 'BACK';
+        document.body.classList.add('overlay-open'); // ✅ 모바일 트로피 뒤로
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (window.innerWidth <= 768) return;
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        currentPosterSelection--;
+        if (currentPosterSelection < 1) currentPosterSelection = 18;
+        selectPoster(currentPosterSelection);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        currentPosterSelection++;
+        if (currentPosterSelection > 18) currentPosterSelection = 1;
+        selectPoster(currentPosterSelection);
+      }
+    });
+
+    function selectPoster(index) {
+      const posterItem = document.querySelector(`.poster-item[data-poster="${index}"]`);
+      if (posterItem) {
+        posterItem.click();
+        posterItem.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+      }
+    }
+
+    let lastTime = Date.now();
+    const targetFPS = 60;
+    const frameInterval = 1000 / targetFPS;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const now = Date.now();
+      const delta = now - lastTime;
+
+      if (delta > frameInterval) {
+        lastTime = now - (delta % frameInterval);
+        if (model && autoRotationSpeed > 0 && !isDragging && !isTransitioning) {
+          model.rotation.y += autoRotationSpeed * 0.01;
+        }
+        renderer.render(scene, camera);
+      }
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      const h = getContainerHeight();
+      camera.aspect = window.innerWidth / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, h);
+      positionInfoBox();
+    });
+  </script>
+</body>
+</html>
